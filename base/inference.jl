@@ -279,7 +279,7 @@ const typeof_tfunc = function (t::ANY)
             Type{typeof(t)}
         end
     elseif isa(t,DataType)
-        if isleaftype(t)
+        if isleaftype(t) || isvarargtype(t)
             Type{t}
         elseif t === Any
             DataType
@@ -346,7 +346,7 @@ function limit_type_depth(t::ANY, d::Int, cov::Bool, vars)
     else
         return t
     end
-    if inexact
+    if inexact && !isvarargtype(R)
         R = TypeVar(:_,R)
         push!(vars, R)
     end
@@ -441,7 +441,7 @@ const fieldtype_tfunc = function (A, s::ANY, name)
     if is(t,Bottom)
         return t
     end
-    Type{exact || isleaftype(t) || isa(t,TypeVar) ? t : TypeVar(:_, t)}
+    Type{exact || isleaftype(t) || isa(t,TypeVar) || isvarargtype(t) ? t : TypeVar(:_, t)}
 end
 add_tfunc(fieldtype, 2, 2, fieldtype_tfunc)
 
@@ -558,7 +558,7 @@ const apply_type_tfunc = function (A::ANY, args...)
     if type_too_complex(appl,0)
         return Type{TypeVar(:_,headtype)}
     end
-    !isa(appl,TypeVar) ? Type{TypeVar(:_,appl)} : Type{appl}
+    !(isa(appl,TypeVar) || isvarargtype(appl)) ? Type{TypeVar(:_,appl)} : Type{appl}
 end
 add_tfunc(apply_type, 1, IInf, apply_type_tfunc)
 
@@ -1231,7 +1231,7 @@ function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
             # abstract types yield Type{<:T} instead of Type{T}.
             # this doesn't really model the situation perfectly, but
             # "isleaftype(inference_stack.types)" should be good enough.
-            if isa(t,TypeVar)
+            if isa(t,TypeVar) || isvarargtype(t)
                 t = Type{t}
             else
                 t = Type{TypeVar(:_,t)}
