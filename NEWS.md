@@ -12,6 +12,9 @@ New language features
     However note that the argument types refer to the syntax tree representation, and not
     to the types of run time values.
 
+  * Varargs functions like `foo{T}(x::T...)` may now restrict the number
+    of such arguments using `foo{T,N}(x::Vararg{T,N})` ([#11242]).
+
   * `x ∈ X` is now a synonym for `x in X` in `for` loops and comprehensions,
     as it already was in comparisons ([#13824]).
 
@@ -37,6 +40,9 @@ Language changes
 
   * Simple 2-argument comparisons like `A < B` are parsed as calls intead of using the
     `:comparison` expression type.
+
+  * The built-in `NTuple` type has been removed; `NTuple{N,T}` is now
+    implemented internally as `Tuple{Vararg{T,N}}` ([#11242]).
 
 Command-line option changes
 ---------------------------
@@ -181,3 +187,4 @@ Deprecated or removed
 [#15258]: https://github.com/JuliaLang/julia/issues/15258
 [#15550]: https://github.com/JuliaLang/julia/issues/15550
 [#15609]: https://github.com/JuliaLang/julia/issues/15609
+[#11242]: https://github.com/JuliaLang/julia/issues/11242
