@@ -897,6 +897,9 @@ function abstract_call_gf_by_type(f::ANY, argtype::ANY, e, sv)
 end
 
 function invoke_tfunc(f::ANY, types::ANY, argtype::ANY, sv::InferenceState)
+    if !isleaftype(Type{types})
+        return Any
+    end
     argtype = typeintersect(types,limit_tuple_type(argtype))
     if is(argtype,Bottom)
         return Bottom
