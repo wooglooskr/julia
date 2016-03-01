@@ -3096,10 +3096,18 @@ function remove_redundant_temp_vars(ast, sa)
     varinfo = ast.args[2][1]
     gensym_types = ast.args[2][3]
     body = ast.args[3]
+    replacemap = ObjectIdDict()
     for (v,init) in sa
-        if ((isa(init,Symbol) || isa(init,SymbolNode)) &&
-            _any(vi->symequal(vi[1],init), varinfo) &&
-            !is_var_assigned(ast, init))
+        init0 = nothing
+        while init !== init0
+            init0 = init
+            init = get(replacemap, isa(init,SymbolNode) ? init.name : init, init0)
+        end
+        # TODO: be able to eliminate `(local var) = GenSym`
+        if (isa(init,GenSym) && isa(v,GenSym)) ||
+            ((isa(init,Symbol) || isa(init,SymbolNode)) &&
+             _any(vi->symequal(vi[1],init), varinfo) &&
+             !is_var_assigned(ast, init))
 
             # this transformation is not valid for vars used before def.
             # we need to preserve the point of assignment to know where to
@@ -3111,9 +3119,14 @@ function remove_redundant_temp_vars(ast, sa)
                 # (from inlining improved type inference information)
                 # and this transformation would worsen the type information
                 # everywhere later in the function
-                if (isa(init,SymbolNode) ? (init.typ <: (isa(v,GenSym)?gensym_types[(v::GenSym).id+1]:local_typeof(v, varinfo))) : true)
+                vtype = isa(v,GenSym) ? gensym_types[(v::GenSym).id+1] : local_typeof(v, varinfo)
+                inittype = isa(init,SymbolNode) ? init.typ :
+                           isa(init,GenSym) ? gensym_types[(init::GenSym).id+1] :
+                           local_typeof(init, varinfo)
+                if inittype <: vtype
                     delete_var!(ast, v)
                     sym_replace(body, Any[v], Void[], Any[init], Void[])
+                    replacemap[isa(v,SymbolNode) ? v.name : v] = init
                 end
             end
         end
