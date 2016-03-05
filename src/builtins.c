@@ -475,8 +475,10 @@ JL_CALLABLE(jl_f__apply)
             for(j=0; j < al; j++) {
                 // jl_fieldref may allocate.
                 newargs[n++] = jl_fieldref(ai, j);
-                if (arg_heap)
+                if (arg_heap) {
+                    // use obj wb since newargs is a svec and not array
                     jl_gc_wb(arg_heap, newargs[n - 1]);
+                }
             }
         }
         else {
@@ -496,8 +498,10 @@ JL_CALLABLE(jl_f__apply)
             else {
                 for (j = 0; j < al; j++) {
                     newargs[n++] = jl_arrayref(aai, j);
-                    if (arg_heap)
+                    if (arg_heap) {
+                        // use obj wb since newargs is a svec and not array
                         jl_gc_wb(arg_heap, newargs[n - 1]);
+                    }
                 }
             }
         }
