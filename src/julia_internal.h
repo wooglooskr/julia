@@ -452,6 +452,7 @@ JL_DLLEXPORT jl_value_t *jl_arraylen(jl_value_t *a);
 int jl_array_store_unboxed(jl_value_t *el_type);
 int jl_array_isdefined(jl_value_t **args, int nargs);
 JL_DLLEXPORT jl_value_t *(jl_array_data_owner)(jl_array_t *a);
+JL_DLLEXPORT uint8_t *(jl_array_card)(jl_array_t *a);
 
 JL_DEFINE_MUTEX_EXT(codegen)
 
