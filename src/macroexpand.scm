@@ -421,7 +421,7 @@
                (error (cadr form)))
            (let ((form (car form))
                  (m    (cdr form)))
-             ;; m is the macro's def module, or #f if def env === use env
+             ;; m is the macro's def module
              (rename-symbolic-labels
               (julia-expand-macros
                (resolve-expansion-vars form m))))))

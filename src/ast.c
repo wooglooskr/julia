@@ -168,14 +168,15 @@ value_t fl_invoke_julia_macro(fl_context_t *fl_ctx, value_t *args, uint32_t narg
     fl_gc_handle(fl_ctx, &scm);
     value_t scmresult;
     jl_module_t *defmod = jl_gf_mtable(f)->module;
-    if (defmod == NULL || defmod == jl_current_module) {
-        scmresult = fl_cons(fl_ctx, scm, fl_ctx->F);
-    }
-    else {
-        value_t opaque = cvalue(fl_ctx, jl_ast_ctx(fl_ctx)->jvtype, sizeof(void*));
-        *(jl_value_t**)cv_data((cvalue_t*)ptr(opaque)) = (jl_value_t*)defmod;
-        scmresult = fl_cons(fl_ctx, scm, opaque);
-    }
+    assert(defmod);
+    /* if (defmod == NULL) { */
+    /*     scmresult = fl_cons(fl_ctx, scm, fl_ctx->F); */
+    /* } */
+    /* else { */
+    value_t opaque = cvalue(fl_ctx, jl_ast_ctx(fl_ctx)->jvtype, sizeof(void*));
+    *(jl_value_t**)cv_data((cvalue_t*)ptr(opaque)) = (jl_value_t*)defmod;
+    scmresult = fl_cons(fl_ctx, scm, opaque);
+    /* } */
     fl_free_gc_handles(fl_ctx, 1);
 
     JL_GC_POP();
