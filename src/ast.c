@@ -514,6 +514,18 @@ static jl_value_t *scm_to_julia_(fl_context_t *fl_ctx, value_t e, int eo)
                 JL_GC_POP();
                 return temp;
             }
+            if (sym == globalref_sym && n == 2) {
+                jl_value_t *m = NULL, *sym = NULL;
+                JL_GC_PUSH2(&m, &sym);
+                m  = scm_to_julia_(fl_ctx, car_(e), 0);
+                sym = scm_to_julia_(fl_ctx, car_(cdr_(e)), 0);
+                assert(jl_is_module(m));
+                assert(jl_is_symbol(sym));
+                jl_value_t *temp = jl_module_globalref((jl_module_t*)m,
+                                                       (jl_sym_t*)sym);
+                JL_GC_POP();
+                return temp;
+            }
             jl_value_t *scmv = NULL, *temp = NULL;
             JL_GC_PUSH1(&scmv);
             if (sym == label_sym) {
@@ -689,6 +701,15 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v)
         return julia_to_list2(fl_ctx, (jl_value_t*)newvar_sym, jl_fieldref(v,0));
     if (jl_typeis(v, jl_topnode_type))
         return julia_to_list2(fl_ctx, (jl_value_t*)top_sym, jl_fieldref(v,0));
+    if (jl_typeis(v, jl_globalref_type)) {
+        value_t args = julia_to_list2(fl_ctx, jl_data_ptr(v)[0],
+                                      jl_data_ptr(v)[1]);
+        fl_gc_handle(fl_ctx, &args);
+        value_t hd = julia_to_scm_(fl_ctx, (jl_value_t*)globalref_sym);
+        value_t scmv = fl_cons(fl_ctx, hd, args);
+        fl_free_gc_handles(fl_ctx, 1);
+        return scmv;
+    }
     if (jl_is_long(v) && fits_fixnum(jl_unbox_long(v)))
         return fixnum(jl_unbox_long(v));
     value_t opaque = cvalue(fl_ctx, jl_ast_ctx(fl_ctx)->jvtype, sizeof(void*));

@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+extern jl_sym_t *globalref_sym;
+
 extern size_t jl_page_size;
 #define jl_stack_lo (jl_get_ptls_states()->stack_lo)
 #define jl_stack_hi (jl_get_ptls_states()->stack_hi)

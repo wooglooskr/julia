@@ -3580,6 +3580,7 @@ void jl_init_types(void)
     top_sym = jl_symbol("top");
     line_sym = jl_symbol("line");
     jl_incomplete_sym = jl_symbol("incomplete");
+    globalref_sym = jl_symbol("globalref");
     error_sym = jl_symbol("error");
     goto_sym = jl_symbol("goto");
     goto_ifnot_sym = jl_symbol("gotoifnot");
