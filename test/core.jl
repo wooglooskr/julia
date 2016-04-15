@@ -3757,3 +3757,11 @@ function f15809()
 end
 f15809()
 @test g15809(2) === Int
+
+module TestModuleAssignment
+using Base.Test
+@test_throws UndefVarError (TestModuleAssignment.x = 1)
+global x
+TestModuleAssignment.x = 1
+@test x == 1
+end

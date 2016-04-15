@@ -177,6 +177,7 @@ void jl_add_method_to_table(jl_methtable_t *mt, jl_tupletype_t *types, jl_lambda
                             jl_svec_t *tvars, int8_t isstaged);
 jl_function_t *jl_module_call_func(jl_module_t *m);
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
+jl_binding_t *jl_get_own_binding(jl_module_t *m, jl_sym_t *var);
 
 jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast);
 
