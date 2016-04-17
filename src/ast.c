@@ -1069,7 +1069,6 @@ jl_lambda_info_t *desplat_lambda(jl_lambda_info_t *li, jl_tupletype_t *types)
     // slotnames
     jl_sym_t *vaname = (jl_sym_t*)jl_cellref(newmeth->slotnames,vapos);
     newa = jl_alloc_array_1d(jl_array_any_type, jl_array_len(newmeth->slotnames)+nslurp);
-    jl_gc_wb(newmeth, newa);
     for (i = 0; i < vapos; i++)
         jl_cellset(newa, i, jl_cellref(newmeth->slotnames, i));
     char *vastr = jl_symbol_name(vaname);
@@ -1082,6 +1081,7 @@ jl_lambda_info_t *desplat_lambda(jl_lambda_info_t *li, jl_tupletype_t *types)
     for (i = vapos; i < jl_array_len(newmeth->slotnames); i++)
         jl_cellset(newa, i+nslurp, jl_cellref(newmeth->slotnames, i));
     newmeth->slotnames = newa;
+    jl_gc_wb(newmeth, newmeth->slotnames);
     // slotflags
     newa = jl_alloc_array_1d(jl_array_uint8_type, jl_array_len(newmeth->slotnames));
     jl_gc_wb(newmeth, newa);
@@ -1137,8 +1137,10 @@ jl_lambda_info_t *desplat_lambda(jl_lambda_info_t *li, jl_tupletype_t *types)
 // replace Slot(id,typ) with Slot(newslot[id],typ)
 void renumber_slot(jl_value_t *slot, size_t *newslot)
 {
-    size_t id = jl_unbox_long(jl_get_nth_field(slot, 0));
-    jl_set_nth_field(slot, 0, jl_box_long(newslot[id]));
+    jl_datatype_t *dt = (jl_datatype_t*) jl_typeof(slot);
+    size_t offs = jl_field_offset(dt, 0);
+    size_t *idp = (size_t*) ((char*)slot + offs);
+    *idp = newslot[*idp];
 }
 
 void renumber_slots_expr(jl_expr_t *ex, size_t *newslot)
