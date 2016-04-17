@@ -697,8 +697,9 @@ static jl_lambda_info_t *cache_method(jl_methtable_t *mt, jl_tupletype_t *type,
     // in general, here we want to find the biggest type that's not a
     // supertype of any other method signatures. so far we are conservative
     // and the types we find should be bigger.
+    jl_vararg_kind_t vakind = jl_va_tuple_kind(decl);
     if (!isstaged && jl_nparams(type) > mt->max_args
-        && jl_va_tuple_kind(decl) == JL_VARARG_UNBOUND) {
+        && vakind == JL_VARARG_UNBOUND) {
         size_t nspec = mt->max_args + 2;
         limited = jl_alloc_svec(nspec);
         for(i=0; i < nspec-1; i++) {
@@ -816,7 +817,15 @@ static jl_lambda_info_t *cache_method(jl_methtable_t *mt, jl_tupletype_t *type,
         return newmeth;
     }
 
-    newmeth = jl_add_static_parameters(method, sparams, type);
+    // De-splat bound-vararg methods
+    if (vakind == JL_VARARG_BOUND || vakind == JL_VARARG_INT) {
+        cache_as_orig = 0;
+        newmeth = desplat_lambda(method, type);
+        newmeth = jl_add_static_parameters(newmeth, sparams, type);
+    }
+    else {
+        newmeth = jl_add_static_parameters(method, sparams, type);
+    }
 
     if (cache_as_orig)
         (void)jl_method_cache_insert(mt, origtype, newmeth);

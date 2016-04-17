@@ -1046,6 +1046,125 @@ int has_meta(jl_array_t *body, jl_sym_t *sym)
     return 0;
 }
 
+void renumber_slots(jl_array_t *code, size_t *newslot);
+
+jl_lambda_info_t *desplat_lambda(jl_lambda_info_t *li, jl_tupletype_t *types)
+{
+    assert(li->isva);
+    size_t *newslot = (size_t*) malloc(jl_array_len(li->slotnames)*sizeof(size_t)+1);
+    jl_array_t *code = li->code;
+    int32_t nargs = li->nargs;
+    size_t nslurp = jl_nparams(types)-nargs+1;
+    jl_array_t *newa = NULL;
+    jl_expr_t *slurpexpr = NULL;
+    jl_expr_t *subexpr = NULL;
+    jl_lambda_info_t *newmeth = jl_copy_lambda_info(li);
+    size_t i;
+    JL_GC_PUSH5(&newa, &newmeth, &slurpexpr, &subexpr, &code);
+    if (!jl_typeis(code,jl_array_any_type)) {
+        code = jl_uncompress_ast(li, code);
+    }
+    // Signature: replace slurping argument with explicit arguments
+    int vapos = nargs-1;
+    // slotnames
+    jl_sym_t *vaname = (jl_sym_t*)jl_cellref(newmeth->slotnames,vapos);
+    newa = jl_alloc_array_1d(jl_array_any_type, jl_array_len(newmeth->slotnames)+nslurp);
+    jl_gc_wb(newmeth, newa);
+    for (i = 0; i < vapos; i++)
+        jl_cellset(newa, i, jl_cellref(newmeth->slotnames, i));
+    char *vastr = jl_symbol_name(vaname);
+    char *tempname = (char*) malloc(strlen(vastr)+5);
+    for (i = 0; i < nslurp; i++) {
+        sprintf(tempname, "%s#%03d", vastr, (int) i);
+        jl_cellset(newa, vapos+i, (jl_value_t*) jl_symbol(tempname));
+    }
+    free(tempname);
+    for (i = vapos; i < jl_array_len(newmeth->slotnames); i++)
+        jl_cellset(newa, i+nslurp, jl_cellref(newmeth->slotnames, i));
+    newmeth->slotnames = newa;
+    // slotflags
+    newa = jl_alloc_array_1d(jl_array_uint8_type, jl_array_len(newmeth->slotnames));
+    jl_gc_wb(newmeth, newa);
+    for (i = 0; i < nargs+nslurp-1; i++)
+        jl_arrayset(newa, jl_arrayref(newmeth->slotflags, 0), i);
+    jl_arrayset(newa, jl_box_uint8(0x12), nargs+nslurp-1);
+    for (i = nargs; i < jl_array_len(newmeth->slotflags); i++)
+        jl_arrayset(newa, jl_arrayref(newmeth->slotflags, i), i+nslurp);
+    newmeth->slotflags = newa;
+    // Body
+    // fix slot numbering
+    for (i = 0; i < nargs-1; i++)
+        newslot[i+1] = i+1;
+    for (i = nargs-1; i < jl_array_len(li->slotnames); i++)
+        newslot[i+1] = i+1+nslurp;
+    renumber_slots(code, newslot);
+    // Pack new arguments into a tuple, so that references to the
+    // original variable succeed
+    newa = jl_alloc_array_1d(jl_array_any_type, jl_array_len(code)+1);
+    jl_gc_wb(newmeth, newa);
+    newmeth->code = newa;
+    int idslurp = 0;
+    if (jl_array_len(code) > 1) {
+        jl_value_t *body1 = jl_cellref(code, idslurp);
+        if (jl_is_expr(body1) && ((jl_expr_t*)body1)->head == meta_sym) {
+            jl_cellset(newa, 0, body1);
+            idslurp = 1;
+        }
+    }
+    slurpexpr = jl_exprn(assign_sym, 2);
+    jl_gc_wb(newmeth->code, slurpexpr);
+    jl_cellset(slurpexpr->args, 0, jl_new_struct(jl_slot_type, jl_box_long(vapos+nslurp+1), jl_any_type));
+    subexpr = jl_exprn(call_sym, nslurp+1);
+    jl_gc_wb(slurpexpr, subexpr);
+    jl_cellset(slurpexpr->args, 1, (jl_value_t*) subexpr);
+    jl_cellset(subexpr->args, 0, jl_new_struct(jl_topnode_type, tuple_sym));
+    for (i = 0; i < nslurp; i++)
+        jl_cellset(subexpr->args, i+1, jl_new_struct(jl_slot_type, jl_box_long(vapos+i+1), jl_any_type));
+    jl_cellset(newa, idslurp, slurpexpr);
+    // TODO?: de-splat ($vaname)... expressions
+    for (i = idslurp; i < jl_array_len(code); i++) {
+        jl_cellset(newa, i+1, jl_cellref(code, i));
+    }
+    newmeth->isva = 0;
+    newmeth->nargs = nargs+nslurp-1;
+    newmeth->tfunc = jl_nothing;
+    JL_GC_POP();
+    free(newslot);
+    newmeth->def = newmeth;
+    return newmeth;
+}
+
+// replace Slot(id,typ) with Slot(newslot[id],typ)
+void renumber_slot(jl_value_t *slot, size_t *newslot)
+{
+    size_t id = jl_unbox_long(jl_get_nth_field(slot, 0));
+    jl_set_nth_field(slot, 0, jl_box_long(newslot[id]));
+}
+
+void renumber_slots_expr(jl_expr_t *ex, size_t *newslot)
+{
+    size_t i;
+    for (i = 0; i < jl_expr_nargs(ex); i++) {
+        jl_value_t *stmt = jl_exprarg(ex, i);
+        if (jl_is_expr(stmt))
+            renumber_slots_expr((jl_expr_t*)stmt, newslot);
+        else if (jl_is_slot(stmt))
+            renumber_slot(stmt, newslot);
+    }
+}
+
+void renumber_slots(jl_array_t *code, size_t *newslot)
+{
+    size_t i;
+    for (i = 0; i < jl_array_len(code); i++) {
+        jl_value_t *stmt = jl_cellref(code, i);
+        if (jl_is_expr(stmt))
+            renumber_slots_expr((jl_expr_t*)stmt, newslot);
+        else if (jl_is_slot(stmt))
+            renumber_slot(stmt, newslot);
+    }
+}
+
 extern jl_value_t *jl_builtin_getfield;
 
 jl_value_t *jl_preresolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)

@@ -3630,6 +3630,8 @@ void jl_init_types(void)
     dots_sym = jl_symbol("...");
     list_sym = jl_symbol("list");
     unused_sym = jl_symbol("#unused#");
+    tuple_sym = jl_symbol("tuple");
+    ref_sym = jl_symbol("ref");
     slot_sym = jl_symbol("slot");
     static_parameter_sym = jl_symbol("static_parameter");
     compiler_temp_sym = jl_symbol("#temp#");
