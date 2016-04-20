@@ -15,11 +15,18 @@ Note that `f` must be made available to all worker processes; see
 and Loading Packages <man-parallel-computing-code-availability>`)
 for details.
 """
-function pgenerate(p::WorkerPool, f, c)
-    if length(p) == 0
-        return AsyncGenerator(f, c)
+function pgenerate(p::WorkerPool, f, c; distributed=true, batch_size=1, on_error = e->rethrow(e))
+    if  (distributed == false) ||
+        (length(p) == 0) ||
+        (length(p) == 1 && fetch(p.channel) == myid())
+
+        return AsyncGenerator(f, c; on_error=on_error)
     end
-    batches = batchsplit(c, min_batch_count = length(p) * 3)
+    if batch_size == :auto
+        batches = batchsplit(c, min_batch_count = length(p) * 3)
+    else
+        batches = batchsplit(c, max_batch_size = batch_size)
+    end
     return flatten(AsyncGenerator(remote(p, b -> asyncmap(f, b)), batches))
 end
 
@@ -46,7 +53,7 @@ Note that `f` must be made available to all worker processes; see
 and Loading Packages <man-parallel-computing-code-availability>`)
 for details.
 """
-pmap(p::WorkerPool, f, c...) = collect(pgenerate(p, f, c...))
+pmap(p::WorkerPool, f, c...; kwargs...) = collect(pgenerate(p, f, c...; kwargs...))
 
 
 """

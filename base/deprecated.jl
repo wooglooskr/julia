@@ -1003,13 +1003,6 @@ function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing)
         end
     end
 
-    if err_stop != nothing
-        depwarn("err_stop is deprecated, use pmap(@catch(f), c...).", :pmap)
-        if err_stop == false
-            f = @catch(f)
-        end
-    end
-
     if pids == nothing
         p = default_worker_pool()
     else
@@ -1017,7 +1010,13 @@ function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing)
         p = WorkerPool(pids)
     end
 
-    return pmap(p, f, c...)
+    if err_stop != nothing
+        depwarn("err_stop is deprecated, use pmap(@catch(f), c...; on_error = e->e).", :pmap)
+        return pmap(p, f, c...; on_error=e->e)
+    else
+        return pmap(p, f, c...)
+    end
+
 end
 
 
