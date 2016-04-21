@@ -100,12 +100,12 @@ typedef struct _jl_sym_t {
     // JL_ATTRIBUTE_ALIGN_PTRSIZE(char name[]);
 } jl_sym_t;
 
-// An SSA symbol, for optimized code analysis and generation
+// A numbered SSA value, for optimized code analysis and generation
 // the `id` is a unique, small number
-typedef struct _jl_gensym_t {
+typedef struct _jl_ssaval_t {
     JL_DATA_TYPE
     ssize_t id;
-} jl_gensym_t;
+} jl_ssaval_t;
 
 // A SimpleVector is an immutable pointer array
 // Data is stored at the end of this variable-length struct.
@@ -226,7 +226,7 @@ typedef struct _jl_lambda_info_t {
     jl_array_t *slotnames; // names of local variables
     jl_value_t *slottypes;
     jl_array_t *slotflags;  // local var bit flags
-    jl_value_t *gensymtypes;
+    jl_value_t *ssavaltypes;  // types of ssa values
     jl_value_t *rettype;
     jl_svec_t *sparam_syms; // sparams is a vector of values indexed by symbols
     jl_svec_t *sparam_vals;
@@ -434,7 +434,7 @@ extern JL_DLLEXPORT jl_datatype_t *jl_typename_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_typector_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_sym_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_symbol_type;
-extern JL_DLLEXPORT jl_datatype_t *jl_gensym_type;
+extern JL_DLLEXPORT jl_datatype_t *jl_ssaval_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_slot_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_simplevector_type;
 extern JL_DLLEXPORT jl_typename_t *jl_tuple_typename;
@@ -839,7 +839,7 @@ static inline uint32_t jl_fielddesc_size(int8_t fielddesc_type)
 #define jl_is_float64(v)     jl_typeis(v,jl_float64_type)
 #define jl_is_bool(v)        jl_typeis(v,jl_bool_type)
 #define jl_is_symbol(v)      jl_typeis(v,jl_sym_type)
-#define jl_is_gensym(v)      jl_typeis(v,jl_gensym_type)
+#define jl_is_ssaval(v)      jl_typeis(v,jl_ssaval_type)
 #define jl_is_slot(v)        jl_typeis(v,jl_slot_type)
 #define jl_is_expr(v)        jl_typeis(v,jl_expr_type)
 #define jl_is_globalref(v)   jl_typeis(v,jl_globalref_type)
@@ -1035,7 +1035,7 @@ JL_DLLEXPORT jl_value_t *jl_box_uint64(uint64_t x);
 JL_DLLEXPORT jl_value_t *jl_box_float32(float x);
 JL_DLLEXPORT jl_value_t *jl_box_float64(double x);
 JL_DLLEXPORT jl_value_t *jl_box_voidpointer(void *x);
-JL_DLLEXPORT jl_value_t *jl_box_gensym(size_t x);
+JL_DLLEXPORT jl_value_t *jl_box_ssaval(size_t x);
 JL_DLLEXPORT jl_value_t *jl_box8 (jl_datatype_t *t, int8_t  x);
 JL_DLLEXPORT jl_value_t *jl_box16(jl_datatype_t *t, int16_t x);
 JL_DLLEXPORT jl_value_t *jl_box32(jl_datatype_t *t, int32_t x);

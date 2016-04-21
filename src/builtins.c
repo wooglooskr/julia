@@ -1139,7 +1139,7 @@ void jl_init_primitives(void)
     add_builtin("TypeMapEntry", (jl_value_t*)jl_typemap_entry_type);
     add_builtin("TypeMapLevel", (jl_value_t*)jl_typemap_level_type);
     add_builtin("Symbol", (jl_value_t*)jl_sym_type);
-    add_builtin("GenSym", (jl_value_t*)jl_gensym_type);
+    add_builtin("SSAVal", (jl_value_t*)jl_ssaval_type);
     add_builtin("Slot", (jl_value_t*)jl_slot_type);
     add_builtin("IntrinsicFunction", (jl_value_t*)jl_intrinsic_type);
     add_builtin("Function", (jl_value_t*)jl_function_type);
@@ -1340,9 +1340,9 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
     else if (vt == jl_sym_type) {
         n += jl_printf(out, ":%s", jl_symbol_name((jl_sym_t*)v));
     }
-    else if (vt == jl_gensym_type) {
-        n += jl_printf(out, "GenSym(%" PRIuPTR ")",
-                       (uintptr_t)((jl_gensym_t*)v)->id);
+    else if (vt == jl_ssaval_type) {
+        n += jl_printf(out, "SSAVal(%" PRIuPTR ")",
+                       (uintptr_t)((jl_ssaval_t*)v)->id);
     }
     else if (vt == jl_globalref_type) {
         n += jl_static_show_x(out, (jl_value_t*)jl_globalref_mod(v), depth);

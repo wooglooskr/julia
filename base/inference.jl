@@ -26,7 +26,7 @@ type InferenceState
     atypes #::Type       # type sig
     sp::SimpleVector     # static parameters
     label_counter::Int   # index of the current highest label for this function
-    fedbackvars::Dict{GenSym, Bool}
+    fedbackvars::Dict{SSAVal, Bool}
     mod::Module
     currpc::LineNum
     static_typeof::Bool
@@ -45,9 +45,9 @@ type InferenceState
     cur_hand #::Tuple{LineNum, Tuple{LineNum, ...}}
     handler_at::Vector{Any}
     n_handlers::Int
-    # gensym sparsity and restart info
-    gensym_uses::Vector{IntSet}
-    gensym_init::Vector{Any}
+    # ssaval sparsity and restart info
+    ssaval_uses::Vector{IntSet}
+    ssaval_init::Vector{Any}
     # call-graph edges connecting from a caller to a callee (and back)
     # we shouldn't need to iterate edges very often, so we use it to optimize the lookup from edge -> linenum
     # whereas backedges is optimized for iteration
@@ -77,8 +77,8 @@ type InferenceState
         if !isa(linfo.slottypes, Array)
             linfo.slottypes = Any[ Any for i = 1:nslots ]
         end
-        if !isa(linfo.gensymtypes, Array)
-            linfo.gensymtypes = Any[ NF for i = 1:(linfo.gensymtypes::Int) ]
+        if !isa(linfo.ssavaltypes, Array)
+            linfo.ssavaltypes = Any[ NF for i = 1:(linfo.ssavaltypes::Int) ]
         end
 
         n = length(linfo.code)
@@ -128,8 +128,8 @@ type InferenceState
             @assert la == 0 # wrong number of arguments
         end
 
-        gensym_uses = find_gensym_uses(linfo.code)
-        gensym_init = copy(linfo.gensymtypes)
+        ssaval_uses = find_ssaval_uses(linfo.code)
+        ssaval_init = copy(linfo.ssavaltypes)
 
         # exception handlers
         cur_hand = ()
@@ -141,10 +141,10 @@ type InferenceState
 
         inmodule = isdefined(linfo, :def) ? linfo.def.module : current_module() # toplevel thunks are inferred in the current module
         frame = new(
-            atypes, sp, nl, Dict{GenSym, Bool}(), inmodule, 0, false,
+            atypes, sp, nl, Dict{SSAVal, Bool}(), inmodule, 0, false,
             linfo, linfo, la, s, Union{}, W, n,
             cur_hand, handler_at, n_handlers,
-            gensym_uses, gensym_init,
+            ssaval_uses, ssaval_init,
             ObjectIdDict(), #Dict{InferenceState, Vector{LineNum}}(),
             Vector{Tuple{InferenceState, Vector{LineNum}}}(),
             false, false, false, optimize, false, nothing)
@@ -1033,8 +1033,8 @@ end
 function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
     if isa(e,QuoteNode)
         return abstract_eval_constant((e::QuoteNode).value)
-    elseif isa(e,GenSym)
-        return abstract_eval_gensym(e::GenSym, sv)
+    elseif isa(e,SSAVal)
+        return abstract_eval_ssaval(e::SSAVal, sv)
     elseif isa(e,Slot)
         return vtypes[e.id].typ
     elseif isa(e,TopNode)
@@ -1156,8 +1156,8 @@ function abstract_eval_global(M::Module, s::Symbol)
     return Any
 end
 
-function abstract_eval_gensym(s::GenSym, sv::InferenceState)
-    typ = sv.linfo.gensymtypes[s.id+1]
+function abstract_eval_ssaval(s::SSAVal, sv::InferenceState)
+    typ = sv.linfo.ssavaltypes[s.id+1]
     if typ === NF
         return Bottom
     end
@@ -1172,7 +1172,7 @@ end
 #### handling for statement-position expressions ####
 
 type StateUpdate
-    var::Union{Slot,GenSym}
+    var::Union{Slot,SSAVal}
     vtype
     state::VarTable
 end
@@ -1184,7 +1184,7 @@ function abstract_interpret(e::ANY, vtypes::VarTable, sv::InferenceState)
         t = abstract_eval(e.args[2], vtypes, sv)
         t === Bottom && return ()
         lhs = e.args[1]
-        if isa(lhs,Slot) || isa(lhs,GenSym)
+        if isa(lhs,Slot) || isa(lhs,SSAVal)
             # don't bother for GlobalRef
             return StateUpdate(lhs, VarState(t,false), vtypes)
         end
@@ -1330,16 +1330,16 @@ function label_counter(body)
 end
 genlabel(sv) = LabelNode(sv.label_counter += 1)
 
-function find_gensym_uses(body)
+function find_ssaval_uses(body)
     uses = IntSet[]
     for line = 1:length(body)
-        find_gensym_uses(body[line], uses, line)
+        find_ssaval_uses(body[line], uses, line)
     end
     return uses
 end
-function find_gensym_uses(e::ANY, uses, line)
-    if isa(e,GenSym)
-        id = (e::GenSym).id+1
+function find_ssaval_uses(e::ANY, uses, line)
+    if isa(e,SSAVal)
+        id = (e::SSAVal).id+1
         while length(uses) < id
             push!(uses, IntSet())
         end
@@ -1351,25 +1351,25 @@ function find_gensym_uses(e::ANY, uses, line)
             return
         end
         if head === :(=)
-            if isa(b.args[1],GenSym)
-                id = (b.args[1]::GenSym).id+1
+            if isa(b.args[1],SSAVal)
+                id = (b.args[1]::SSAVal).id+1
                 while length(uses) < id
                     push!(uses, IntSet())
                 end
             end
-            find_gensym_uses(b.args[2], uses, line)
+            find_ssaval_uses(b.args[2], uses, line)
             return
         end
         for a in b.args
-            find_gensym_uses(a, uses, line)
+            find_ssaval_uses(a, uses, line)
         end
     end
 end
 
 function newvar!(sv::InferenceState, typ)
-    id = length(sv.linfo.gensymtypes)
-    push!(sv.linfo.gensymtypes, typ)
-    return GenSym(id)
+    id = length(sv.linfo.ssavaltypes)
+    push!(sv.linfo.ssavaltypes, typ)
+    return SSAVal(id)
 end
 
 # create a specialized LambdaInfo from a method
@@ -1389,8 +1389,8 @@ function unshare_linfo!(li::LambdaInfo)
     if isa(li.slottypes, Array)
         li.slottypes = copy(li.slottypes)
     end
-    if isa(li.gensymtypes, Array)
-        li.gensymtypes = copy(li.gensymtypes)
+    if isa(li.ssavaltypes, Array)
+        li.ssavaltypes = copy(li.ssavaltypes)
     end
     return li
 end
@@ -1531,7 +1531,7 @@ function typeinf_ext(linfo::LambdaInfo)
                 linfo.slotnames = code.slotnames
                 linfo.slottypes = code.slottypes
                 linfo.slotflags = code.slotflags
-                linfo.gensymtypes = code.gensymtypes
+                linfo.ssavaltypes = code.ssavaltypes
                 linfo.rettype = code.rettype
                 linfo.pure = code.pure
             end
@@ -1641,15 +1641,15 @@ function typeinf_frame(frame)
                 end
             end
             pc´ = pc+1
-            if isa(changes, StateUpdate) && isa((changes::StateUpdate).var, GenSym)
-                # directly forward changes to a GenSym to the applicable line
+            if isa(changes, StateUpdate) && isa((changes::StateUpdate).var, SSAVal)
+                # directly forward changes to an SSAVal to the applicable line
                 changes = changes::StateUpdate
-                id = (changes.var::GenSym).id + 1
+                id = (changes.var::SSAVal).id + 1
                 new = changes.vtype.typ
-                old = frame.linfo.gensymtypes[id]
+                old = frame.linfo.ssavaltypes[id]
                 if old===NF || !(new ⊑ old)
-                    frame.linfo.gensymtypes[id] = tmerge(old, new)
-                    for r in frame.gensym_uses[id]
+                    frame.linfo.ssavaltypes[id] = tmerge(old, new)
+                    for r in frame.ssaval_uses[id]
                         if !is(s[r], ()) # s[r] === () => unreached statement
                             push!(W, r)
                         end
@@ -1680,18 +1680,18 @@ function typeinf_frame(frame)
                     end
                 elseif is(hd, :type_goto)
                     for i = 2:length(stmt.args)
-                        var = stmt.args[i]::GenSym
+                        var = stmt.args[i]::SSAVal
                         # Store types that need to be fed back via type_goto
-                        # in gensym_init. After finishing inference, if any
+                        # in ssaval_init. After finishing inference, if any
                         # of these types changed, start over with the fed-back
                         # types known from the beginning.
                         # See issue #3821 (using !typeseq instead of !subtype),
                         # and issue #7810.
                         id = var.id+1
-                        vt = frame.linfo.gensymtypes[id]
-                        ot = frame.gensym_init[id]
+                        vt = frame.linfo.ssavaltypes[id]
+                        ot = frame.ssaval_init[id]
                         if ot===NF || !(vt⊑ot && ot⊑vt)
-                            frame.gensym_init[id] = vt
+                            frame.ssaval_init[id] = vt
                             if get(frame.fedbackvars, var, false)
                                 frame.typegotoredo = true
                             end
@@ -1778,7 +1778,7 @@ function typeinf_frame(frame)
             frame.cur_hand = ()
             frame.handler_at = Any[ () for i=1:n ]
             frame.n_handlers = 0
-            frame.linfo.gensymtypes[:] = frame.gensym_init
+            frame.linfo.ssavaltypes[:] = frame.ssaval_init
             @goto restart_typeinf
         else
             # if a static_typeof was never reached,
@@ -1789,8 +1789,8 @@ function typeinf_frame(frame)
             for (fbvar, seen) in frame.fedbackvars
                 if !seen
                     frame.fedbackvars[fbvar] = true
-                    id = (fbvar::GenSym).id + 1
-                    for r in frame.gensym_uses[id]
+                    id = (fbvar::SSAVal).id + 1
+                    for r in frame.ssaval_uses[id]
                         if !is(s[r], ()) # s[r] === () => unreached statement
                             push!(W, r)
                         end
@@ -1850,7 +1850,7 @@ function finish(me::InferenceState)
     @assert me.inworkq
 
     # annotate fulltree with type information
-    gt = me.linfo.gensymtypes
+    gt = me.linfo.ssavaltypes
     for i = 1:length(gt)
         if gt[i] === NF
             gt[i] = Union{}
@@ -1894,7 +1894,7 @@ function finish(me::InferenceState)
         out.slotnames = me.linfo.slotnames
         out.slottypes = me.linfo.slottypes
         out.slotflags = me.linfo.slotflags
-        out.gensymtypes = me.linfo.gensymtypes
+        out.ssavaltypes = me.linfo.ssavaltypes
         out.rettype = me.linfo.rettype
         out.pure = me.linfo.pure
     end
@@ -2014,8 +2014,8 @@ function _widen_all_consts(x::Expr)
     x
 end
 function widen_all_consts!(linfo::LambdaInfo)
-    for i = 1:length(linfo.gensymtypes)
-        linfo.gensymtypes[i] = widenconst(linfo.gensymtypes[i])
+    for i = 1:length(linfo.ssavaltypes)
+        linfo.ssavaltypes[i] = widenconst(linfo.ssavaltypes[i])
     end
     for i = 1:length(linfo.code)
         linfo.code[i] = _widen_all_consts(linfo.code[i])
@@ -2073,8 +2073,8 @@ function exprtype(x::ANY, sv::InferenceState)
         return (x::Expr).typ
     elseif isa(x,Slot)
         return (x::Slot).typ
-    elseif isa(x,GenSym)
-        return abstract_eval_gensym(x::GenSym, sv)
+    elseif isa(x,SSAVal)
+        return abstract_eval_ssaval(x::SSAVal, sv)
     elseif isa(x,TopNode)
         return abstract_eval_global(_topmod(sv), (x::TopNode).name)
     elseif isa(x,Symbol)
@@ -2122,7 +2122,7 @@ function effect_free(e::ANY, sv, allow_volatile::Bool)
     if isa(e,Symbol)
         return allow_volatile
     end
-    if isa(e,Number) || isa(e,AbstractString) || isa(e,GenSym) ||
+    if isa(e,Number) || isa(e,AbstractString) || isa(e,SSAVal) ||
         isa(e,TopNode) || isa(e,QuoteNode) || isa(e,Type) || isa(e,Tuple)
         return true
     end
@@ -2139,7 +2139,7 @@ function effect_free(e::ANY, sv, allow_volatile::Bool)
             return true
         end
         ea = e.args
-        if e.head === :call && !isa(e.args[1], GenSym) && !isa(e.args[1], Slot)
+        if e.head === :call && !isa(e.args[1], SSAVal) && !isa(e.args[1], Slot)
             if is_known_call_p(e, is_pure_builtin, sv)
                 if !allow_volatile
                     if is_known_call(e, arrayref, sv) || is_known_call(e, arraylen, sv)
@@ -2155,7 +2155,7 @@ function effect_free(e::ANY, sv, allow_volatile::Bool)
                             if isa(a,Symbol)
                                 return false
                             end
-                            if isa(a,GenSym)
+                            if isa(a,SSAVal)
                                 typ = widenconst(exprtype(a,sv))
                                 if !isa(typ,DataType) || typ.mutable
                                     return false
@@ -2297,7 +2297,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     end
     for i=1:length(spvals)
         si = spvals[i]
-        if isa(si,Symbol) || isa(si,GenSym) || isa(si,Slot)
+        if isa(si,Symbol) || isa(si,SSAVal) || isa(si,Slot)
             spvals[i] = QuoteNode(si)
         end
     end
@@ -2575,14 +2575,14 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         unshift!(argexprs2, top_tuple)
     end
 
-    # re-number the GenSyms and copy their type-info to the new ast
-    gensym_types = linfo.gensymtypes
-    if !isempty(gensym_types)
-        incr = length(sv.linfo.gensymtypes)
+    # re-number the SSAVals and copy their type-info to the new ast
+    ssaval_types = linfo.ssavaltypes
+    if !isempty(ssaval_types)
+        incr = length(sv.linfo.ssavaltypes)
         if incr != 0
-            body = gensym_increment(body, incr)
+            body = ssaval_increment(body, incr)
         end
-        append!(sv.linfo.gensymtypes, gensym_types)
+        append!(sv.linfo.ssavaltypes, ssaval_types)
     end
 
     # ok, substitute argument expressions for argument names in the body
@@ -2712,14 +2712,14 @@ function inline_worthy(body::Expr, cost::Integer=1000) # precondition: 0 < cost;
     return false
 end
 
-gensym_increment(body::ANY, incr) = body
-gensym_increment(body::GenSym, incr) = GenSym(body.id + incr)
-function gensym_increment(body::Expr, incr)
+ssaval_increment(body::ANY, incr) = body
+ssaval_increment(body::SSAVal, incr) = SSAVal(body.id + incr)
+function ssaval_increment(body::Expr, incr)
     if body.head === :line
         return body
     end
     for i in 1:length(body.args)
-        body.args[i] = gensym_increment(body.args[i], incr)
+        body.args[i] = ssaval_increment(body.args[i], incr)
     end
     return body
 end
@@ -2854,7 +2854,7 @@ function inlining_pass(e::Expr, sv, linfo)
         if length(e.args) == 3 && isa(e.args[3],Union{Int32,Int64})
             a1 = e.args[2]
             basenumtype = Union{corenumtype, Main.Base.Complex64, Main.Base.Complex128, Main.Base.Rational}
-            if isa(a1,basenumtype) || ((isa(a1,Symbol) || isa(a1,Slot) || isa(a1,GenSym)) &&
+            if isa(a1,basenumtype) || ((isa(a1,Symbol) || isa(a1,Slot) || isa(a1,SSAVal)) &&
                                        exprtype(a1,sv) ⊑ basenumtype)
                 if e.args[3]==2
                     e.args = Any[GlobalRef(Main.Base,:*), a1, a1]
@@ -2991,23 +2991,23 @@ occurs_undef(var::Int, expr, flags) =
 # remove all single-assigned vars v in "v = x" where x is an argument
 # and not assigned.
 # "sa" is the result of find_sa_vars
-# T: Slot or Gensym
+# T: Slot or SSAVal
 function remove_redundant_temp_vars(linfo, sa, T)
     flags = linfo.slotflags
-    gensym_types = linfo.gensymtypes
+    ssaval_types = linfo.ssavaltypes
     bexpr = Expr(:block); bexpr.args = linfo.code
     for (v,init) in sa
         if (isa(init, Slot) && !is_var_assigned(linfo, init))
             # this transformation is not valid for vars used before def.
             # we need to preserve the point of assignment to know where to
             # throw errors (issue #4645).
-            if T===GenSym || !occurs_undef(v, bexpr, flags)
+            if T===SSAVal || !occurs_undef(v, bexpr, flags)
                 # the transformation is not ideal if the assignment
                 # is present for the auto-unbox functionality
                 # (from inlining improved type inference information)
                 # and this transformation would worsen the type information
                 # everywhere later in the function
-                if init.typ ⊑ (T===GenSym ? gensym_types[v+1] : linfo.slottypes[v])
+                if init.typ ⊑ (T===SSAVal ? ssaval_types[v+1] : linfo.slottypes[v])
                     delete_var!(linfo, v, T)
                     slot_replace!(linfo, v, init, T)
                 end
@@ -3028,7 +3028,7 @@ function find_sa_vars(linfo::LambdaInfo)
         e = body[i]
         if isa(e,Expr) && is(e.head,:(=))
             lhs = e.args[1]
-            if isa(lhs, GenSym)
+            if isa(lhs, SSAVal)
                 gss[lhs.id] = e.args[2]
             elseif isa(lhs, Slot)
                 id = lhs.id
@@ -3046,7 +3046,7 @@ function find_sa_vars(linfo::LambdaInfo)
     av, gss
 end
 
-symequal(x::GenSym, y::GenSym) = is(x.id,y.id)
+symequal(x::SSAVal, y::SSAVal) = is(x.id,y.id)
 symequal(x::Slot  , y::Slot)   = is(x.id,y.id)
 symequal(x::ANY   , y::ANY)    = is(x,y)
 
@@ -3175,11 +3175,11 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
     bexpr = Expr(:block); bexpr.args = body
     vs, gs = find_sa_vars(linfo)
     remove_redundant_temp_vars(linfo, vs, Slot)
-    remove_redundant_temp_vars(linfo, gs, GenSym)
+    remove_redundant_temp_vars(linfo, gs, SSAVal)
     i = 1
     while i < length(body)
         e = body[i]
-        if !(isa(e,Expr) && is(e.head,:(=)) && (isa(e.args[1], GenSym) ||
+        if !(isa(e,Expr) && is(e.head,:(=)) && (isa(e.args[1], SSAVal) ||
                                                 (isa(e.args[1],Slot) && haskey(vs, e.args[1].id))))
             i += 1
             continue
@@ -3241,11 +3241,11 @@ function replace_getfield!(linfo::LambdaInfo, e::Expr, tupname, vals, field_name
                     val.typ = a.typ
                     linfo.slottypes[val.id] = widenconst(a.typ)
                 end
-            elseif isa(val,GenSym)
-                val = val::GenSym
+            elseif isa(val,SSAVal)
+                val = val::SSAVal
                 typ = exprtype(val, sv)
                 if a.typ ⊑ typ && !(typ ⊑ a.typ)
-                    sv.linfo.gensymtypes[val.id+1] = a.typ
+                    sv.linfo.ssavaltypes[val.id+1] = a.typ
                 end
             end
             e.args[i] = val

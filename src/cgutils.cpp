@@ -845,13 +845,13 @@ static inline jl_module_t *topmod(jl_codectx_t *ctx)
 
 static jl_value_t *expr_type(jl_value_t *e, jl_codectx_t *ctx)
 {
-    if (jl_is_gensym(e)) {
-        if (jl_is_long(ctx->linfo->gensymtypes))
+    if (jl_is_ssaval(e)) {
+        if (jl_is_long(ctx->linfo->ssavaltypes))
             return (jl_value_t*)jl_any_type;
-        int idx = ((jl_gensym_t*)e)->id;
-        assert(jl_is_array(ctx->linfo->gensymtypes));
-        jl_array_t *gensym_types = (jl_array_t*)ctx->linfo->gensymtypes;
-        return jl_cellref(gensym_types, idx);
+        int idx = ((jl_ssaval_t*)e)->id;
+        assert(jl_is_array(ctx->linfo->ssavaltypes));
+        jl_array_t *ssaval_types = (jl_array_t*)ctx->linfo->ssavaltypes;
+        return jl_cellref(ssaval_types, idx);
     }
     if (jl_typeis(e, jl_slot_type)) {
         jl_value_t *typ = jl_slot_get_type(e);
@@ -1082,7 +1082,7 @@ static jl_arrayvar_t *arrayvar_for(jl_value_t *ex, jl_codectx_t *ctx)
     int sl = jl_slot_number(ex)-1;
     if (ctx->arrayvars->find(sl) != ctx->arrayvars->end())
         return &(*ctx->arrayvars)[sl];
-    //TODO: gensym case
+    //TODO: ssaval case
     return NULL;
 }
 
@@ -1407,11 +1407,11 @@ static Value *boxed(const jl_cgval_t &vinfo, jl_codectx_t *ctx, bool gcrooted)
         box = call_with_unsigned(box_uint64_func, v);
     else if (jb == jl_char_type)
         box = call_with_unsigned(box_char_func, v);
-    else if (jb == jl_gensym_type) {
+    else if (jb == jl_ssaval_type) {
         unsigned zero = 0;
-        assert(v->getType() == jl_gensym_type->struct_decl);
+        assert(v->getType() == jl_ssaval_type->struct_decl);
         v = builder.CreateExtractValue(v, makeArrayRef(&zero, 1));
-        box = call_with_unsigned(box_gensym_func, v);
+        box = call_with_unsigned(box_ssaval_func, v);
     }
     else if (!jl_isbits(jt) || !jl_is_leaf_type(jt)) {
         assert("Don't know how to box this type" && false);
@@ -1554,7 +1554,7 @@ static void emit_setfield(jl_datatype_t *sty, const jl_cgval_t &strct, size_t id
 
 static bool might_need_root(jl_value_t *ex)
 {
-    return (!jl_is_symbol(ex) && !jl_typeis(ex, jl_slot_type) && !jl_is_gensym(ex) &&
+    return (!jl_is_symbol(ex) && !jl_typeis(ex, jl_slot_type) && !jl_is_ssaval(ex) &&
             !jl_is_bool(ex) && !jl_is_quotenode(ex) && !jl_is_byte_string(ex) &&
             !jl_is_globalref(ex));
 }

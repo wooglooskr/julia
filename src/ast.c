@@ -60,7 +60,7 @@ typedef struct _jl_ast_context_t {
     value_t false_sym;
     value_t error_sym;
     value_t null_sym;
-    value_t jlgensym_sym;
+    value_t ssaval_sym;
     value_t slot_sym;
     jl_ast_context_list_t list;
     int ref;
@@ -210,7 +210,7 @@ static void jl_init_ast_ctx(jl_ast_context_t *ast_ctx)
     jl_ast_ctx(fl_ctx)->false_sym = symbol(fl_ctx, "false");
     jl_ast_ctx(fl_ctx)->error_sym = symbol(fl_ctx, "error");
     jl_ast_ctx(fl_ctx)->null_sym = symbol(fl_ctx, "null");
-    jl_ast_ctx(fl_ctx)->jlgensym_sym = symbol(fl_ctx, "jlgensym");
+    jl_ast_ctx(fl_ctx)->ssaval_sym = symbol(fl_ctx, "ssaval");
     jl_ast_ctx(fl_ctx)->slot_sym = symbol(fl_ctx, "slot");
 
     // Enable / disable syntax deprecation warnings
@@ -440,8 +440,8 @@ static jl_value_t *scm_to_julia_(fl_context_t *fl_ctx, value_t e, int eo)
         }
         else {
             hd = car_(e);
-            if (hd == jl_ast_ctx(fl_ctx)->jlgensym_sym)
-                return jl_box_gensym(numval(car_(cdr_(e))));
+            if (hd == jl_ast_ctx(fl_ctx)->ssaval_sym)
+                return jl_box_ssaval(numval(car_(cdr_(e))));
             else if (hd == jl_ast_ctx(fl_ctx)->slot_sym) {
                 jl_value_t *slotnum = jl_box_long(numval(car_(cdr_(e))));
                 JL_GC_PUSH1(&slotnum);
@@ -620,8 +620,8 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v)
 {
     if (jl_is_symbol(v))
         return symbol(fl_ctx, jl_symbol_name((jl_sym_t*)v));
-    if (jl_is_gensym(v))
-        return fl_list2(fl_ctx, jl_ast_ctx(fl_ctx)->jlgensym_sym, fixnum((size_t)((jl_gensym_t*)v)->id));
+    if (jl_is_ssaval(v))
+        return fl_list2(fl_ctx, jl_ast_ctx(fl_ctx)->ssaval_sym, fixnum((size_t)((jl_ssaval_t*)v)->id));
     if (v == jl_true)
         return fl_ctx->T;
     if (v == jl_false)
@@ -862,7 +862,7 @@ jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr)
     vi = (jl_value_t*)jl_alloc_cell_1d(3);
     jl_cellset(vi, 0, mt);
     jl_cellset(vi, 1, mt);
-    // front end always wraps toplevel exprs with gensyms in (thunk (lambda () ...))
+    // front end always wraps toplevel exprs with ssavals in (thunk (lambda () ...))
     jl_cellset(vi, 2, jl_box_long(0));
     jl_cellset(le->args, 1, vi);
     if (!jl_is_expr(expr) || ((jl_expr_t*)expr)->head != body_sym) {
@@ -901,8 +901,8 @@ jl_array_t *jl_lam_vinfo(jl_expr_t *l)
     return (jl_array_t*)ll;
 }
 
-// get array of types for GenSym vars, or its length (if not type-inferred)
-jl_value_t *jl_lam_gensyms(jl_expr_t *l)
+// get array of types for SSAVals, or its length (if not type-inferred)
+jl_value_t *jl_lam_ssavals(jl_expr_t *l)
 {
     assert(jl_is_expr(l));
     jl_value_t *le = jl_exprarg(l, 1);

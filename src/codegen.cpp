@@ -387,7 +387,7 @@ static Function *box_int64_func;
 static Function *box_uint64_func;
 static Function *box_float32_func;
 static Function *box_float64_func;
-static Function *box_gensym_func;
+static Function *box_ssaval_func;
 static Function *box8_func;
 static Function *box16_func;
 static Function *box32_func;
@@ -551,8 +551,8 @@ typedef struct {
     Function *f;
     // local var info. globals are not in here.
     std::vector<jl_varinfo_t> slots;
-    std::vector<jl_cgval_t> gensym_SAvalues;
-    std::vector<bool> gensym_assigned;
+    std::vector<jl_cgval_t> SAvalues;
+    std::vector<bool> ssaval_assigned;
     std::map<int, jl_arrayvar_t> *arrayvars;
     std::map<int, BasicBlock*> *labels;
     std::map<int, Value*> *handlers;
@@ -1620,11 +1620,11 @@ jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
     }
     if (jl_typeis(ex,jl_slot_type))
         return NULL;
-    if (jl_is_gensym(ex)) {
-        ssize_t idx = ((jl_gensym_t*)ex)->id;
+    if (jl_is_ssaval(ex)) {
+        ssize_t idx = ((jl_ssaval_t*)ex)->id;
         assert(idx >= 0);
-        if (ctx != NULL && ctx->gensym_assigned.at(idx)) {
-            return ctx->gensym_SAvalues.at(idx).constant;
+        if (ctx != NULL && ctx->ssaval_assigned.at(idx)) {
+            return ctx->SAvalues.at(idx).constant;
         }
         return NULL;
     }
@@ -3026,10 +3026,10 @@ static jl_cgval_t emit_local(jl_value_t *slotload, jl_codectx_t *ctx)
 
 static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
 {
-    if (jl_is_gensym(l)) {
-        ssize_t idx = ((jl_gensym_t*)l)->id;
+    if (jl_is_ssaval(l)) {
+        ssize_t idx = ((jl_ssaval_t*)l)->id;
         assert(idx >= 0);
-        assert(!ctx->gensym_assigned.at(idx));
+        assert(!ctx->ssaval_assigned.at(idx));
         jl_cgval_t slot = emit_expr(r, ctx); // slot could be a jl_value_t (unboxed) or jl_value_t* (ispointer)
         if (!slot.isboxed && !slot.isimmutable) { // emit a copy of values stored in mutable slots
             Type *vtype = julia_type_to_llvm(slot.typ);
@@ -3039,17 +3039,17 @@ static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
                     false, slot.typ, ctx);
         }
         if (slot.isboxed && slot.isimmutable) {
-            // see if inference had a better type for the gensym than the expression (after inlining getfield on a Tuple)
-            jl_value_t *gensym_types = (jl_value_t*)ctx->linfo->gensymtypes;
-            if (jl_is_array(gensym_types)) {
-                jl_value_t *declType = jl_cellref(gensym_types, idx);
+            // see if inference had a better type for the ssaval than the expression (after inlining getfield on a Tuple)
+            jl_value_t *ssaval_types = (jl_value_t*)ctx->linfo->ssavaltypes;
+            if (jl_is_array(ssaval_types)) {
+                jl_value_t *declType = jl_cellref(ssaval_types, idx);
                 if (declType != slot.typ) {
                     slot = remark_julia_type(slot, declType);
                 }
             }
         }
-        ctx->gensym_SAvalues.at(idx) = slot; // now gensym_SAvalues[idx] contains the SAvalue
-        ctx->gensym_assigned.at(idx) = true;
+        ctx->SAvalues.at(idx) = slot; // now SAvalues[idx] contains the SAvalue
+        ctx->ssaval_assigned.at(idx) = true;
         return;
     }
 
@@ -3141,7 +3141,7 @@ static void emit_stmtpos(jl_value_t *expr, jl_codectx_t *ctx)
 {
     if (jl_is_symbol(expr) || jl_is_slot(expr))
         return; // value not used, no point in attempting codegen for it
-    if (jl_is_gensym(expr))
+    if (jl_is_ssaval(expr))
         return; // value not used, no point in attempting codegen for it
     if (jl_is_linenode(expr))
         return;
@@ -3176,15 +3176,15 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx)
     if (jl_is_slot(expr)) {
         return emit_local(expr, ctx);
     }
-    if (jl_is_gensym(expr)) {
-        ssize_t idx = ((jl_gensym_t*)expr)->id;
+    if (jl_is_ssaval(expr)) {
+        ssize_t idx = ((jl_ssaval_t*)expr)->id;
         assert(idx >= 0);
-        if (!ctx->gensym_assigned.at(idx)) {
-            ctx->gensym_assigned.at(idx) = true; // (assignment, not comparison test)
+        if (!ctx->ssaval_assigned.at(idx)) {
+            ctx->ssaval_assigned.at(idx) = true; // (assignment, not comparison test)
             return jl_cgval_t(); // dead code branch
         }
         else {
-            return ctx->gensym_SAvalues.at(idx); // at this point, gensym_SAvalues[idx] actually contains the SAvalue
+            return ctx->SAvalues.at(idx); // at this point, SAvalues[idx] actually contains the SAvalue
         }
     }
     if (jl_is_labelnode(expr)) {
@@ -3963,7 +3963,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     ctx.spvals_ptr = NULL;
 
     // step 2. process var-info lists to see what vars need boxing
-    int n_gensyms = jl_is_long(lam->gensymtypes) ? jl_unbox_long(lam->gensymtypes) : jl_array_len(lam->gensymtypes);
+    int n_ssavals = jl_is_long(lam->ssavaltypes) ? jl_unbox_long(lam->ssavaltypes) : jl_array_len(lam->ssavaltypes);
     size_t largslen = lam->nargs;
     size_t vinfoslen = jl_array_dim0(lam->slotnames);
     ctx.slots.resize(vinfoslen);
@@ -3984,9 +3984,9 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     }
     ctx.nReqArgs = nreq;
 
-    // create SAvalue locations for GenSym objects
-    ctx.gensym_assigned.assign(n_gensyms, false);
-    ctx.gensym_SAvalues.assign(n_gensyms, jl_cgval_t());
+    // create SAvalue locations for SSAVal objects
+    ctx.ssaval_assigned.assign(n_ssavals, false);
+    ctx.SAvalues.assign(n_ssavals, jl_cgval_t());
 
     // step 3. some variable analysis
     size_t i;
@@ -5806,7 +5806,7 @@ extern "C" void jl_init_codegen(void)
     BOX_F(int64,int64); UBOX_F(uint64,uint64);
     BOX_F(float32,float32); BOX_F(float64,float64);
     BOX_F(char,char);
-    UBOX_F(gensym,size);
+    UBOX_F(ssaval,size);
 
     box8_func  = boxfunc_llvm(ft2arg(T_pjlvalue, T_pjlvalue, T_int8),
                               "jl_box8", &jl_box8, m);

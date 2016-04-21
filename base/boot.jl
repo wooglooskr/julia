@@ -139,7 +139,7 @@ export
     StackOverflowError, SegmentationFault, UndefRefError, UndefVarError, TypeError,
     # AST representation
     Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode, TopNode,
-    GlobalRef, NewvarNode, GenSym, Slot,
+    GlobalRef, NewvarNode, SSAVal, Slot,
     # object model functions
     fieldtype, getfield, setfield!, nfields, throw, tuple, is, ===, isdefined, eval,
     # sizeof    # not exported, to avoid conflicting with Base.sizeof
@@ -279,7 +279,7 @@ _new(:GotoNode, :Int)
 _new(:TopNode, :Symbol)
 _new(:NewvarNode, :Slot)
 _new(:QuoteNode, :ANY)
-_new(:GenSym, :Int)
+_new(:SSAVal, :Int)
 eval(:((::Type{LineNumberNode})(f::Symbol, l::Int) = $(Expr(:new, :LineNumberNode, :f, :l))))
 eval(:((::Type{GlobalRef})(m::Module, s::Symbol) = $(Expr(:new, :GlobalRef, :m, :s))))
 eval(:((::Type{Slot})(n::Int) = $(Expr(:new, :Slot, :n, Any))))

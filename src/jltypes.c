@@ -25,7 +25,7 @@ jl_datatype_t *jl_type_type;
 jl_datatype_t *jl_typename_type;
 jl_datatype_t *jl_sym_type;
 jl_datatype_t *jl_symbol_type;
-jl_datatype_t *jl_gensym_type;
+jl_datatype_t *jl_ssaval_type;
 jl_datatype_t *jl_slot_type;
 jl_datatype_t *jl_simplevector_type;
 jl_typename_t *jl_tuple_typename;
@@ -3352,7 +3352,7 @@ void jl_init_types(void)
     jl_uint8_type = jl_new_bitstype((jl_value_t*)jl_symbol("UInt8"),
                                     jl_any_type, jl_emptysvec, 8);
 
-    jl_gensym_type = jl_new_datatype(jl_symbol("GenSym"), jl_any_type, jl_emptysvec,
+    jl_ssaval_type = jl_new_datatype(jl_symbol("SSAVal"), jl_any_type, jl_emptysvec,
                                      jl_svec1(jl_symbol("id")),
                                      jl_svec1(jl_long_type), 0, 0, 1);
 
@@ -3527,7 +3527,7 @@ void jl_init_types(void)
                                 jl_symbol("slotnames"),
                                 jl_symbol("slottypes"),
                                 jl_symbol("slotflags"),
-                                jl_symbol("gensymtypes"),
+                                jl_symbol("ssavaltypes"),
                                 jl_symbol("rettype"),
                                 jl_symbol("sparam_syms"),
                                 jl_symbol("sparam_vals"),
